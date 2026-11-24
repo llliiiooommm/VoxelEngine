@@ -1,0 +1,10 @@
+export const CS = 16, H = 96, SEA = 40;
+export const T = 16, AC = 8, AR = 4;
+export const HW = 0.3, PH = 1.8, EPS = 1e-3;
+export const SENS = 0.0022;
+export const DAY_LEN = 600;
+export const DAY = [0.47, 0.65, 1.0], NIGHT = [0.01, 0.015, 0.05], DUSK = [0.98, 0.55, 0.3];
+export const DIRS = ['север (−Z)', 'запад (−X)', 'юг (+Z)', 'восток (+X)'];
+export const baseFov = 75;
+export const $ = s => document.querySelector(s);
+export const body = document.body;

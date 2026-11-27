@@ -2,6 +2,7 @@ import * as THREE from 'https://esm.sh/three@0.170.0';
 import { HW, PH, EPS } from '../utils/Constants.js';
 import { getBlock, chunks, key } from '../world/World.js';
 import { SOLID } from '../world/Blocks.js';
+import { soundManager } from '../core/SoundManager.js';
 
 export const player = { 
   pos: new THREE.Vector3(), vel: new THREE.Vector3(), yaw: 0.6, pitch: -0.12, 
@@ -9,6 +10,9 @@ export const player = {
 };
 
 let _bob = 0, _bobAmp = 0;
+let wasInWater = false;
+let wasOnGround = false;
+
 export function getBob() { return _bob; }
 export function setBob(v) { _bob = v; }
 export function getBobAmp() { return _bobAmp; }
@@ -45,7 +49,6 @@ export function updatePlayer(dt, keys, inputState, respawnFn) {
   const fwd = (k('KeyW') || k('ArrowUp') ? 1 : 0) - (k('KeyS') || k('ArrowDown') ? 1 : 0);
   const str = (k('KeyD') || k('ArrowRight') ? 1 : 0) - (k('KeyA') || k('ArrowLeft') ? 1 : 0);
   player.sneak = k('ShiftLeft') || k('ShiftRight');
-  // ИЗМЕНЕНО: бег теперь на Ctrl вместо R
   if (k('ControlLeft') || k('ControlRight')) {
     if (fwd > 0) player.sprinting = true;
   } else {
@@ -57,7 +60,7 @@ export function updatePlayer(dt, keys, inputState, respawnFn) {
   const len = Math.hypot(wx, wz); if (len) { wx /= len; wz /= len; }
   
   const p = player.pos;
-  player.inWater = getBlock(Math.floor(p.x), Math.floor(p.y + 0.4), Math.floor(p.z)) === 9;
+  player.inWater = getBlock(Math.floor(p.x), Math.floor(p.y + 0.4), Math.floor(p.z)) === 10;
   let speed = player.flying ? (player.sprinting ? 21 : 10.9) : player.sneak ? 1.3 : player.sprinting ? 5.6 : 4.317;
   if (player.inWater && !player.flying) speed *= 0.5;
   const accel = player.flying ? 8 : player.onGround ? 18 : 4;
@@ -73,7 +76,10 @@ export function updatePlayer(dt, keys, inputState, respawnFn) {
     v.y -= 10*dt; if (k('Space')) v.y = Math.min(v.y + 30*dt, 3.6); v.y = Math.max(v.y, -4);
   } else {
     v.y = Math.max(v.y - 32*dt, -60);
-    if (k('Space') && player.onGround) v.y = 9;
+    if (k('Space') && player.onGround) {
+      v.y = 9;
+      soundManager.playJump();
+    }
   }
   
   if (player.sneak && player.onGround && !player.flying) {
@@ -85,9 +91,21 @@ export function updatePlayer(dt, keys, inputState, respawnFn) {
   player.onGround = false;
   const steps = Math.max(1, Math.ceil(Math.max(Math.abs(v.x), Math.abs(v.y), Math.abs(v.z)) * dt / 0.4));
   for (let i = 0; i < steps; i++) { collide('y', v.y*dt/steps); collide('x', v.x*dt/steps); collide('z', v.z*dt/steps); }
-  if (player.flying && player.onGround && !wasGround) player.flying = false;
+  if (player.flying && player.onGround && !wasGround) {
+    player.flying = false;
+    soundManager.playFly();
+  }
   
   const hs = Math.hypot(v.x, v.z);
-  if (player.onGround && hs > 0.5) setBob(getBob() + hs * dt * 1.7);
+  if (player.onGround && hs > 0.5) {
+    setBob(getBob() + hs * dt * 1.7);
+    const surfaceBlock = getBlock(Math.floor(p.x), Math.floor(p.y - 0.1), Math.floor(p.z));
+    if (surfaceBlock > 0) soundManager.playStep(surfaceBlock);
+  }
+  
+  if (player.inWater && !wasInWater) soundManager.playSplash();
+  wasInWater = player.inWater;
+  wasOnGround = player.onGround;
+  
   if (p.y < -30) respawnFn();
 }

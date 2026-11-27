@@ -15,6 +15,7 @@ import { slots, sel, selectSlot, renderHotbar, state, getDebugOn, setDebugOn, se
 import { keys, inputState, setupInput } from './core/Input.js';
 import { saveManager } from './core/SaveManager.js';
 import { loadSettings, getSetting, renderSettingsScreen, saveCurrentSettings, resetToDefaults } from './ui/Settings.js';
+import { soundManager } from './core/SoundManager.js';
 
 const canvas = $('#view');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
@@ -37,7 +38,7 @@ const tmpDir = new THREE.Vector3();
 let currentWorldName = null;
 let worldAlreadySaved = false;
 let autoSaveTimer = 0;
-let pendingWorldName = null;
+let previousState = 'menu';
 
 function updateTarget() {
   if (state !== 'playing' && state !== 'paused') { outline.visible = false; target = null; return; }
@@ -54,32 +55,24 @@ function respawn() { const p = player.pos; p.set(spawn.x, 0, spawn.z); p.y = sur
 async function initWorld(newSeed, worldName = null, savedData = null) {
   if (newSeed) { const newS = (Math.random() * 1e9) | 0; regenerateNoise(newS); }
   if (savedData && savedData.seed) { regenerateNoise(savedData.seed); }
-  
   for (const c of chunks.values()) { if (c.mesh) { scene.remove(c.mesh); c.mesh.geometry.dispose(); } if (c.water) { scene.remove(c.water); c.water.geometry.dispose(); } }
   chunks.clear();
-  
   for (let r = 0; r < 400; r += 8) for (let a = 0; a < 8; a++) {
     const x = Math.round(Math.cos(a * Math.PI / 4) * r), z = Math.round(Math.sin(a * Math.PI / 4) * r);
     const h = heightAt(x, z);
     if (h > SEA + 1 && h < SEA + 22) { spawn = { x: x + .5, z: z + .5 }; r = 400; break; }
     if (r === 0) break;
   }
-  
   const cx = Math.floor(spawn.x / 16), cz = Math.floor(spawn.z / 16);
   for (let dz = -3; dz <= 3; dz++) for (let dx = -3; dx <= 3; dx++) generate(cx + dx, cz + dz, chunks, key);
   for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) buildMesh(chunks.get(key(cx + dx, cz + dz)), chunks, key, worldMat, waterMat, scene);
-  
   if (savedData && savedData.playerPos) {
     player.pos.set(savedData.playerPos.x, savedData.playerPos.y, savedData.playerPos.z);
     player.yaw = savedData.playerYaw || 0.6;
     player.pitch = savedData.playerPitch || -0.12;
     setDayTime(savedData.time || 0.06);
     if (savedData.slots) savedData.slots.forEach((id, i) => { if (slots[i] !== undefined) slots[i] = id; });
-  } else {
-    respawn();
-    setDayTime(0.06);
-  }
-  
+  } else { respawn(); setDayTime(0.06); }
   currentWorldName = worldName;
   worldAlreadySaved = !!savedData;
   renderHotbar();
@@ -88,47 +81,45 @@ async function initWorld(newSeed, worldName = null, savedData = null) {
 async function saveCurrentWorld() {
   if (!currentWorldName) return false;
   try {
-    const worldData = {
-      seed: SEED,
-      playerPos: { x: player.pos.x, y: player.pos.y, z: player.pos.z },
-      playerYaw: player.yaw,
-      playerPitch: player.pitch,
-      time: dayTime,
-      slots: [...slots],
-      stats: {}
-    };
+    const worldData = { seed: SEED, playerPos: { x: player.pos.x, y: player.pos.y, z: player.pos.z }, playerYaw: player.yaw, playerPitch: player.pitch, time: dayTime, slots: [...slots], stats: {} };
     await saveManager.saveWorld(currentWorldName, worldData);
     worldAlreadySaved = true;
-    console.log('Мир сохранен:', currentWorldName);
     return true;
   } catch (e) { console.error('Ошибка сохранения:', e); return false; }
 }
 
-function startPlaying() { setState('playing', canvas); lockPointer(canvas); }
+function startPlaying() {
+  soundManager.init();
+  soundManager.startAmbient();
+  setState('playing', canvas);
+  lockPointer(canvas);
+}
+
 function onTimeToggle() { const current = dayTime; setDayTime(current < 0.5 ? 0.55 : 0.06); const btn = $('#btn-time'); if (btn) btn.textContent = dayTime < 0.5 ? 'Время: день' : 'Время: ночь'; }
 function onAction(btn) { if (btn === 0 || btn === 2) setSwingT(1); doAction(btn, target, slots, sel, selectSlot, renderHotbar, (x,y,z,id) => spawnParticles(x,y,z,id, dayTime < 0.5 ? 0.5 : 1, scene), setBlock, getBlock); }
 function onToggleFly() { player.flying = !player.flying; player.vel.y = 0; }
 function onToggleDebug() { setDebugOn(!getDebugOn()); const el = $('#debug'); if (el) el.hidden = !getDebugOn(); }
 
-function showNameModal() {
-  const modal = $('#name-modal');
-  const input = $('#world-name-input');
-  if (modal && input) {
-    modal.hidden = false;
-    input.value = '';
-    input.focus();
-  }
-}
+function showNameModal() { const modal = $('#name-modal'); const input = $('#world-name-input'); if (modal && input) { modal.hidden = false; input.value = ''; input.focus(); } }
+function hideNameModal() { const modal = $('#name-modal'); if (modal) modal.hidden = true; }
 
-function hideNameModal() {
-  const modal = $('#name-modal');
-  if (modal) modal.hidden = true;
+function returnFromSettings() {
+  if (previousState === 'paused') {
+    setState('paused', canvas);
+  } else if (previousState === 'playing') {
+    startPlaying();
+  } else {
+    setState('menu', canvas);
+  }
 }
 
 (async () => {
   await loadSettings();
   const savedDist = getSetting('renderDist');
   if (savedDist) setRenderDist(savedDist);
+  soundManager.setVolume('master', getSetting('volumeMaster') ?? 0.7);
+  soundManager.setVolume('sfx', getSetting('volumeSfx') ?? 0.8);
+  soundManager.setVolume('ambient', getSetting('volumeAmbient') ?? 0.4);
   setupUI();
   renderHotbar();
   initWorld(false);
@@ -137,7 +128,6 @@ function hideNameModal() {
 
 function setupUI() {
   const safeBind = (id, event, handler) => { const el = document.getElementById(id); if (el) el.addEventListener(event, handler); };
-  
   const nameInput = $('#world-name-input');
   const btnConfirmName = $('#btn-confirm-name');
   const btnCancelName = $('#btn-cancel-name');
@@ -148,27 +138,16 @@ function setupUI() {
     btnConfirmName.onclick = async () => {
       const name = nameInput.value.trim();
       if (!name) { nameInput.style.borderColor = '#f44'; return; }
-      
       const exists = await saveManager.worldExists(name);
-      if (exists) {
-        if (!confirm(`Мир "${name}" уже существует. Перезаписать?`)) return;
-      }
-      
+      if (exists) { if (!confirm(`Мир "${name}" уже существует. Перезаписать?`)) return; }
       hideNameModal();
       await initWorld(true, name, null);
       startPlaying();
     };
   }
-  
-  if (btnCancelName) {
-    btnCancelName.onclick = () => { hideNameModal(); };
-  }
-  
+  if (btnCancelName) btnCancelName.onclick = () => { hideNameModal(); };
   if (nameInput) {
-    nameInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter' && btnConfirmName) btnConfirmName.click();
-      if (e.key === 'Escape') hideNameModal();
-    });
+    nameInput.addEventListener('keypress', (e) => { if (e.key === 'Enter' && btnConfirmName) btnConfirmName.click(); if (e.key === 'Escape') hideNameModal(); });
   }
   
   safeBind('btn-select-world', 'click', async () => {
@@ -183,56 +162,65 @@ function setupUI() {
         div.innerHTML = `<div class="world-info" style="flex:1;cursor:pointer"><h3>${w.name}</h3><p>${new Date(w.timestamp).toLocaleString()}</p></div><button class="btn-del" data-name="${w.name}">Удалить</button>`;
         div.querySelector('.world-info').onclick = async () => {
           const savedData = await saveManager.loadWorld(w.name);
-          if (savedData) {
-            await initWorld(false, w.name, savedData);
-            startPlaying();
-          }
+          if (savedData) { await initWorld(false, w.name, savedData); startPlaying(); }
         };
-        div.querySelector('.btn-del').onclick = async (e) => { 
-          e.stopPropagation(); 
-          if (confirm(`Удалить мир "${w.name}"?`)) {
-            await saveManager.deleteWorld(w.name); 
-            div.remove(); 
-          }
-        };
+        div.querySelector('.btn-del').onclick = async (e) => { e.stopPropagation(); if (confirm(`Удалить мир "${w.name}"?`)) { await saveManager.deleteWorld(w.name); div.remove(); } };
         list.appendChild(div);
       });
     } catch (e) { console.error(e); }
+    previousState = state;
     setState('worlds', canvas);
   });
   
-  safeBind('btn-settings', 'click', () => { renderSettingsScreen(); setState('settings', canvas); });
+  // КНОПКА НАСТРОЕК ИЗ ГЛАВНОГО МЕНЮ
+  safeBind('btn-settings', 'click', () => { 
+    previousState = 'menu';
+    renderSettingsScreen(); 
+    setState('settings', canvas); 
+  });
+  
   safeBind('btn-exit', 'click', () => { alert('Вы вышли из игры. Перезагрузите страницу для повторного входа.'); });
   safeBind('btn-back-from-worlds', 'click', () => { setState('menu', canvas); });
   
   safeBind('btn-resume', 'click', startPlaying);
+  
   safeBind('btn-save-pause', 'click', async () => { 
-    if (!currentWorldName) {
-      alert('Сначала создайте мир с именем!');
-      return;
-    }
+    if (!currentWorldName) { alert('Сначала создайте мир с именем!'); return; }
     const success = await saveCurrentWorld(); 
     const btn = $('#btn-save-pause'); 
     if (btn) { btn.textContent = success ? 'Сохранено!' : 'Ошибка!'; setTimeout(() => btn.textContent = 'Сохранить игру', 1500); } 
   });
-  safeBind('btn-settings-pause', 'click', () => { renderSettingsScreen(); setState('settings', canvas); });
+  
+  // КНОПКА НАСТРОЕК ИЗ ПАУЗЫ — запоминаем что пришли из paused
+  safeBind('btn-settings-pause', 'click', () => { 
+    previousState = 'paused';
+    renderSettingsScreen(); 
+    setState('settings', canvas); 
+  });
+  
   safeBind('btn-quit-to-menu', 'click', async () => { 
-    if (currentWorldName && worldAlreadySaved) {
-      await saveCurrentWorld();
-    }
+    if (currentWorldName && worldAlreadySaved) await saveCurrentWorld();
+    soundManager.stopAmbient();
     if (document.pointerLockElement) document.exitPointerLock(); 
     setState('menu', canvas); 
   });
   
+  // СОХРАНИТЬ НАСТРОЙКИ + ВЕРНУТЬСЯ КУДА ПРИШЛИ
   safeBind('btn-save-settings', 'click', async () => { 
     await saveCurrentSettings(); 
-    setState('menu', canvas);
+    returnFromSettings();
   });
+  
+  // ПО УМОЛЧАНИЮ — просто сброс без возврата
   safeBind('btn-default-settings', 'click', () => { resetToDefaults(); });
-  safeBind('btn-back-from-settings', 'click', () => { setState('menu', canvas); });
+  
+  // НАЗАД — просто возврат без сохранения
+  safeBind('btn-back-from-settings', 'click', () => { 
+    returnFromSettings();
+  });
 
   setupInput(canvas, {
-    initWorld, startPlaying, setState: (s) => setState(s, canvas), lockPointer: () => lockPointer(canvas),
+    initWorld, startPlaying, setState: (s) => { previousState = state; setState(s, canvas); }, lockPointer: () => lockPointer(canvas),
     onTimeToggle, onAction, onToggleFly, onToggleDebug, setRenderDist,
     getSensitivity: () => getSetting('mouseSens') || 0.0022,
     onResize: () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = handCam.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); handCam.updateProjectionMatrix(); }
@@ -247,10 +235,8 @@ function frame(now) {
     updatePlayer(dt, keys, inputState, respawn);
     if (inputState.mouseHeld >= 0) { inputState.holdT += dt; if (inputState.holdT >= 0.25) { inputState.holdT = 0; updateTarget(); onAction(inputState.mouseHeld); } }
     autoSaveTimer += dt; 
-    if (autoSaveTimer > 30 && currentWorldName && worldAlreadySaved) { 
-      saveCurrentWorld(); 
-      autoSaveTimer = 0; 
-    }
+    if (autoSaveTimer > 30 && currentWorldName && worldAlreadySaved) { saveCurrentWorld(); autoSaveTimer = 0; }
+    soundManager.updateAmbient(dt, dayTime);
   } else if (state === 'menu') { player.yaw += dt * 0.035; player.pitch = -0.1; }
   if (state === 'playing' || state === 'menu') { setDayTime((dayTime + dt / DAY_LEN) % 1); setCloudDrift(getCloudDrift() + dt * 1.2); }
   const hs = Math.hypot(player.vel.x, player.vel.z);

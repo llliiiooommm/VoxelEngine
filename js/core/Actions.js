@@ -2,7 +2,7 @@ import { getBlock, setBlock } from '../world/World.js';
 import { BL, OPAQUE, SOLID } from '../world/Blocks.js';
 import { player } from '../entities/Player.js';
 import { HW, PH } from '../utils/Constants.js';
-import { setSwingT } from '../entities/Hand.js';
+import { soundManager } from './SoundManager.js';
 
 export function raycast(o, d, max) {
   let x = Math.floor(o.x), y = Math.floor(o.y), z = Math.floor(o.z);
@@ -14,7 +14,7 @@ export function raycast(o, d, max) {
   let face = [0,0,0], t = 0;
   for (let i = 0; i < 64; i++) {
     const id = getBlock(x, y, z);
-    if (id && (OPAQUE[id] || id === 9)) return { x, y, z, id, face };
+    if (id && (OPAQUE[id] || id === 10)) return { x, y, z, id, face };
     if (tmx < tmy && tmx < tmz) { x += sx; t = tmx; tmx += tdx; face = [-sx,0,0]; }
     else if (tmy < tmz) { y += sy; t = tmy; tmy += tdy; face = [0,-sy,0]; }
     else { z += sz; t = tmz; tmz += tdz; face = [0,0,-sz]; }
@@ -29,14 +29,15 @@ export function intersectsPlayer(x, y, z) {
 }
 
 export function doAction(btn, target, slots, sel, selectSlot, renderHotbar, spawnParticlesFn, setBlockFn, getBlockFn) {
-  if (!target) { if (btn !== 1) setSwingT(1); return; }
+  if (!target) { if (btn !== 1) window.swingT = 1; return; }
   const h = target;
   if (btn === 0) {
     setBlockFn(h.x, h.y, h.z, 0);
     spawnParticlesFn(h.x, h.y, h.z, h.id);
+    soundManager.playBreak();
     const above = getBlockFn(h.x, h.y + 1, h.z);
     if (above && BL[above].cross) setBlockFn(h.x, h.y + 1, h.z, 0);
-    setSwingT(1);
+    window.swingT = 1;
   } else if (btn === 2) {
     const id = slots[sel]; const b = BL[id];
     let tx = h.x, ty = h.y, tz = h.z;
@@ -48,7 +49,8 @@ export function doAction(btn, target, slots, sel, selectSlot, renderHotbar, spaw
     if (b.solid && intersectsPlayer(tx, ty, tz)) return;
     setBlockFn(tx, ty, tz, id);
     if (OPAQUE[id] && getBlockFn(tx, ty - 1, tz) === 1) setBlockFn(tx, ty - 1, tz, 2);
-    setSwingT(1);
+    soundManager.playPlace();
+    window.swingT = 1;
   } else if (btn === 1) {
     const i = slots.indexOf(h.id);
     if (i >= 0) selectSlot(i); else { slots[sel] = h.id; renderHotbar(); selectSlot(sel); }

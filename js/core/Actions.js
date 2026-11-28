@@ -1,5 +1,5 @@
 import { getBlock, setBlock } from '../world/World.js';
-import { BL, OPAQUE, SOLID } from '../world/Blocks.js';
+import { BL, SOLID, OPAQUE } from '../world/Blocks.js';
 import { player } from '../entities/Player.js';
 import { HW, PH } from '../utils/Constants.js';
 import { soundManager } from './SoundManager.js';
@@ -12,9 +12,12 @@ export function raycast(o, d, max) {
   let tmy = sy > 0 ? (y + 1 - o.y)*tdy : sy < 0 ? (o.y - y)*tdy : Infinity;
   let tmz = sz > 0 ? (z + 1 - o.z)*tdz : sz < 0 ? (o.z - z)*tdz : Infinity;
   let face = [0,0,0], t = 0;
+  
   for (let i = 0; i < 64; i++) {
     const id = getBlock(x, y, z);
-    if (id && (OPAQUE[id] || id === 10)) return { x, y, z, id, face };
+    // ИСПРАВЛЕНИЕ: Используем SOLID, чтобы ловить листву (8), стекло (11) и воду (10)
+    if (id && SOLID[id]) return { x, y, z, id, face };
+    
     if (tmx < tmy && tmx < tmz) { x += sx; t = tmx; tmx += tdx; face = [-sx,0,0]; }
     else if (tmy < tmz) { y += sy; t = tmy; tmy += tdy; face = [0,-sy,0]; }
     else { z += sz; t = tmz; tmz += tdz; face = [0,0,-sz]; }
@@ -29,30 +32,59 @@ export function intersectsPlayer(x, y, z) {
 }
 
 export function doAction(btn, target, slots, sel, selectSlot, renderHotbar, spawnParticlesFn, setBlockFn, getBlockFn) {
-  if (!target) { if (btn !== 1) window.swingT = 1; return; }
+  if (!target) { 
+    if (btn !== 1) window.swingT = 1; 
+    return; 
+  }
   const h = target;
+  
+  // ЛКМ: Ломание
   if (btn === 0) {
     setBlockFn(h.x, h.y, h.z, 0);
     spawnParticlesFn(h.x, h.y, h.z, h.id);
     soundManager.playBreak();
+    
+    // Ломаем растения сверху, если ломаете блок под ними
     const above = getBlockFn(h.x, h.y + 1, h.z);
     if (above && BL[above].cross) setBlockFn(h.x, h.y + 1, h.z, 0);
+    
     window.swingT = 1;
-  } else if (btn === 2) {
-    const id = slots[sel]; const b = BL[id];
+  } 
+  // ПКМ: Установка
+  else if (btn === 2) {
+    const id = slots[sel]; 
+    const b = BL[id];
     let tx = h.x, ty = h.y, tz = h.z;
-    if (!BL[h.id].replace) { tx += h.face[0]; ty += h.face[1]; tz += h.face[2]; }
+    
+    if (!BL[h.id].replace) { 
+      tx += h.face[0]; ty += h.face[1]; tz += h.face[2]; 
+    }
+    
     if (ty < 0 || ty >= 96) return;
     const cur = getBlockFn(tx, ty, tz);
     if (cur && !BL[cur].replace) return;
-    if (b.cross) { const below = getBlockFn(tx, ty - 1, tz); if (below !== 1 && below !== 2) return; }
+    
+    if (b.cross) { 
+      const below = getBlockFn(tx, ty - 1, tz); 
+      if (below !== 1 && below !== 2) return; 
+    }
+    
     if (b.solid && intersectsPlayer(tx, ty, tz)) return;
+    
     setBlockFn(tx, ty, tz, id);
     if (OPAQUE[id] && getBlockFn(tx, ty - 1, tz) === 1) setBlockFn(tx, ty - 1, tz, 2);
+    
     soundManager.playPlace();
     window.swingT = 1;
-  } else if (btn === 1) {
+  } 
+  // СКМ: Взять блок
+  else if (btn === 1) {
     const i = slots.indexOf(h.id);
-    if (i >= 0) selectSlot(i); else { slots[sel] = h.id; renderHotbar(); selectSlot(sel); }
+    if (i >= 0) selectSlot(i); 
+    else { 
+      slots[sel] = h.id; 
+      renderHotbar(); 
+      selectSlot(sel); 
+    }
   }
 }

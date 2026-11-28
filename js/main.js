@@ -11,7 +11,7 @@ import { raycast, doAction } from './core/Actions.js';
 import { spawnParticles, updateParticles } from './world/Particles.js';
 import { initSky, updateSky, dayTime, cloudDrift, setDayTime, setCloudDrift, getCloudDrift } from './world/Sky.js';
 import { initHand, updateHand, handScene, handCam, handMat, setSwingT } from './entities/Hand.js';
-import { slots, sel, selectSlot, renderHotbar, state, getDebugOn, setDebugOn, setState, lockPointer, updateDebug, SPLASHES } from './ui/UI.js';
+import { inventory, selectedSlot, selectSlot, renderHotbar, state, getDebugOn, setDebugOn, setState, lockPointer, updateDebug, SPLASHES, openInventory, closeInventory } from './ui/UI.js';
 import { keys, inputState, setupInput } from './core/Input.js';
 import { saveManager } from './core/SaveManager.js';
 import { loadSettings, getSetting, renderSettingsScreen, saveCurrentSettings, resetToDefaults } from './ui/Settings.js';
@@ -71,7 +71,6 @@ async function initWorld(newSeed, worldName = null, savedData = null) {
     player.yaw = savedData.playerYaw || 0.6;
     player.pitch = savedData.playerPitch || -0.12;
     setDayTime(savedData.time || 0.06);
-    if (savedData.slots) savedData.slots.forEach((id, i) => { if (slots[i] !== undefined) slots[i] = id; });
   } else { respawn(); setDayTime(0.06); }
   currentWorldName = worldName;
   worldAlreadySaved = !!savedData;
@@ -81,7 +80,7 @@ async function initWorld(newSeed, worldName = null, savedData = null) {
 async function saveCurrentWorld() {
   if (!currentWorldName) return false;
   try {
-    const worldData = { seed: SEED, playerPos: { x: player.pos.x, y: player.pos.y, z: player.pos.z }, playerYaw: player.yaw, playerPitch: player.pitch, time: dayTime, slots: [...slots], stats: {} };
+    const worldData = { seed: SEED, playerPos: { x: player.pos.x, y: player.pos.y, z: player.pos.z }, playerYaw: player.yaw, playerPitch: player.pitch, time: dayTime, inventory: [...inventory], stats: {} };
     await saveManager.saveWorld(currentWorldName, worldData);
     worldAlreadySaved = true;
     return true;
@@ -96,7 +95,7 @@ function startPlaying() {
 }
 
 function onTimeToggle() { const current = dayTime; setDayTime(current < 0.5 ? 0.55 : 0.06); const btn = $('#btn-time'); if (btn) btn.textContent = dayTime < 0.5 ? 'Время: день' : 'Время: ночь'; }
-function onAction(btn) { if (btn === 0 || btn === 2) setSwingT(1); doAction(btn, target, slots, sel, selectSlot, renderHotbar, (x,y,z,id) => spawnParticles(x,y,z,id, dayTime < 0.5 ? 0.5 : 1, scene), setBlock, getBlock); }
+function onAction(btn) { if (btn === 0 || btn === 2) setSwingT(1); doAction(btn, target, inventory, 37 + selectedSlot, selectSlot, renderHotbar, (x,y,z,id) => spawnParticles(x,y,z,id, dayTime < 0.5 ? 0.5 : 1, scene), setBlock, getBlock); }
 function onToggleFly() { player.flying = !player.flying; player.vel.y = 0; }
 function onToggleDebug() { setDebugOn(!getDebugOn()); const el = $('#debug'); if (el) el.hidden = !getDebugOn(); }
 
@@ -104,13 +103,9 @@ function showNameModal() { const modal = $('#name-modal'); const input = $('#wor
 function hideNameModal() { const modal = $('#name-modal'); if (modal) modal.hidden = true; }
 
 function returnFromSettings() {
-  if (previousState === 'paused') {
-    setState('paused', canvas);
-  } else if (previousState === 'playing') {
-    startPlaying();
-  } else {
-    setState('menu', canvas);
-  }
+  if (previousState === 'paused') setState('paused', canvas);
+  else if (previousState === 'playing') startPlaying();
+  else setState('menu', canvas);
 }
 
 (async () => {
@@ -133,7 +128,6 @@ function setupUI() {
   const btnCancelName = $('#btn-cancel-name');
   
   safeBind('btn-new-game', 'click', () => { showNameModal(); });
-  
   if (btnConfirmName) {
     btnConfirmName.onclick = async () => {
       const name = nameInput.value.trim();
@@ -172,32 +166,18 @@ function setupUI() {
     setState('worlds', canvas);
   });
   
-  // КНОПКА НАСТРОЕК ИЗ ГЛАВНОГО МЕНЮ
-  safeBind('btn-settings', 'click', () => { 
-    previousState = 'menu';
-    renderSettingsScreen(); 
-    setState('settings', canvas); 
-  });
-  
+  safeBind('btn-settings', 'click', () => { previousState = 'menu'; renderSettingsScreen(); setState('settings', canvas); });
   safeBind('btn-exit', 'click', () => { alert('Вы вышли из игры. Перезагрузите страницу для повторного входа.'); });
   safeBind('btn-back-from-worlds', 'click', () => { setState('menu', canvas); });
   
   safeBind('btn-resume', 'click', startPlaying);
-  
   safeBind('btn-save-pause', 'click', async () => { 
     if (!currentWorldName) { alert('Сначала создайте мир с именем!'); return; }
     const success = await saveCurrentWorld(); 
     const btn = $('#btn-save-pause'); 
     if (btn) { btn.textContent = success ? 'Сохранено!' : 'Ошибка!'; setTimeout(() => btn.textContent = 'Сохранить игру', 1500); } 
   });
-  
-  // КНОПКА НАСТРОЕК ИЗ ПАУЗЫ — запоминаем что пришли из paused
-  safeBind('btn-settings-pause', 'click', () => { 
-    previousState = 'paused';
-    renderSettingsScreen(); 
-    setState('settings', canvas); 
-  });
-  
+  safeBind('btn-settings-pause', 'click', () => { previousState = 'paused'; renderSettingsScreen(); setState('settings', canvas); });
   safeBind('btn-quit-to-menu', 'click', async () => { 
     if (currentWorldName && worldAlreadySaved) await saveCurrentWorld();
     soundManager.stopAmbient();
@@ -205,23 +185,21 @@ function setupUI() {
     setState('menu', canvas); 
   });
   
-  // СОХРАНИТЬ НАСТРОЙКИ + ВЕРНУТЬСЯ КУДА ПРИШЛИ
-  safeBind('btn-save-settings', 'click', async () => { 
-    await saveCurrentSettings(); 
-    returnFromSettings();
-  });
-  
-  // ПО УМОЛЧАНИЮ — просто сброс без возврата
+  safeBind('btn-save-settings', 'click', async () => { await saveCurrentSettings(); returnFromSettings(); });
   safeBind('btn-default-settings', 'click', () => { resetToDefaults(); });
-  
-  // НАЗАД — просто возврат без сохранения
-  safeBind('btn-back-from-settings', 'click', () => { 
-    returnFromSettings();
-  });
+  safeBind('btn-back-from-settings', 'click', () => { returnFromSettings(); });
 
   setupInput(canvas, {
     initWorld, startPlaying, setState: (s) => { previousState = state; setState(s, canvas); }, lockPointer: () => lockPointer(canvas),
     onTimeToggle, onAction, onToggleFly, onToggleDebug, setRenderDist,
+    onOpenInventory: openInventory,
+    onSaveGame: async () => {
+        if (!currentWorldName) { alert('Сначала создайте мир с именем!'); return; }
+        const success = await saveCurrentWorld(); 
+        const btn = $('#btn-save-pause'); 
+        if (btn) { btn.textContent = success ? 'Сохранено!' : 'Ошибка!'; setTimeout(() => btn.textContent = 'Сохранить игру', 1500); } 
+    },
+    onOpenSettings: () => { previousState = 'paused'; renderSettingsScreen(); setState('settings', canvas); },
     getSensitivity: () => getSetting('mouseSens') || 0.0022,
     onResize: () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = handCam.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); handCam.updateProjectionMatrix(); }
   });
@@ -254,11 +232,11 @@ function frame(now) {
   updateSky(skyObjs, scene, camera, renderer, worldMat, waterMat, handMat);
   updateTarget();
   updateParticles(dt, scene);
-  updateHand(dt, slots, sel, currentBob, getBobAmp());
+  updateHand(dt, inventory, 37 + selectedSlot, currentBob, getBobAmp());
   $('#mode').textContent = state === 'menu' ? '' : player.flying ? 'Полёт' : '';
   renderer.clear();
   renderer.render(scene, camera);
-  if (state !== 'menu' && state !== 'settings' && state !== 'worlds') { renderer.clearDepth(); renderer.render(handScene, handCam); }
+  if (state !== 'menu' && state !== 'settings' && state !== 'worlds' && state !== 'inventory') { renderer.clearDepth(); renderer.render(handScene, handCam); }
   fpsFrames++; fpsTime += dt;
   if (fpsTime >= 0.5) { fps = Math.round(fpsFrames / fpsTime); fpsFrames = 0; fpsTime = 0; if (getDebugOn()) updateDebug(fps, target, SEED); }
 }

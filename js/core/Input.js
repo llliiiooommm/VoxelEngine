@@ -1,6 +1,6 @@
 import { SENS, $, body } from '../utils/Constants.js';
 import { player } from '../entities/Player.js';
-import { state, fallbackLook, setState, enableFallback, lockPointer, selectSlot, sel, SPLASHES } from '../ui/UI.js';
+import { state, fallbackLook, setState, enableFallback, lockPointer, selectSlot, selectedSlot, inventory, SPLASHES, openInventory, closeInventory } from '../ui/UI.js';
 import { dayTime } from '../world/Sky.js';
 import { renderDist, setRenderDist } from '../world/World.js';
 
@@ -68,12 +68,14 @@ export function setupInput(canvas, callbacks) {
         if (e.button === inputState.mouseHeld) inputState.mouseHeld = -1; 
     });
     
-    addEventListener('contextmenu', e => e.preventDefault());
+    addEventListener('contextmenu', e => {
+        if (state === 'playing') e.preventDefault();
+    });
     
     addEventListener('wheel', e => { 
         if (state !== 'playing') return; 
         e.preventDefault(); 
-        selectSlot(sel + Math.sign(e.deltaY)); 
+        selectSlot(selectedSlot + Math.sign(e.deltaY)); 
     }, { passive: false });
 
     addEventListener('blur', () => keys.clear());
@@ -85,18 +87,11 @@ export function setupInput(canvas, callbacks) {
             return; 
         }
         
-        if (state === 'inventory' || state === 'settings') {
-            if (e.code === 'KeyE' || e.code === 'Escape') { 
+        if (state === 'settings') {
+            if (e.code === 'Escape') { 
                 e.preventDefault(); 
-                if (state === 'settings') {
-                    if (document.pointerLockElement) callbacks.setState('paused');
-                    else callbacks.setState('menu');
-                } else {
-                    callbacks.startPlaying();
-                }
-            }
-            else if (/^Digit[1-9]$/.test(e.code) && state === 'inventory') {
-                selectSlot(+e.code.slice(5) - 1);
+                if (document.pointerLockElement) callbacks.setState('paused');
+                else callbacks.setState('menu');
             }
             return;
         }
@@ -116,7 +111,7 @@ export function setupInput(canvas, callbacks) {
         }
         if (e.code === 'KeyF') callbacks.onToggleFly();
         if (e.code === 'KeyE') { 
-            callbacks.setState('inventory'); 
+            callbacks.onOpenInventory();
             if (document.pointerLockElement) document.exitPointerLock(); 
         }
         if (e.code === 'Escape' && fallbackLook) callbacks.setState('paused');
@@ -124,6 +119,5 @@ export function setupInput(canvas, callbacks) {
     });
 
     addEventListener('keyup', e => keys.delete(e.code));
-    
     addEventListener('resize', callbacks.onResize);
 }

@@ -23,12 +23,22 @@ class SoundManager {
     this.buffers.break = this._makeNoiseBuf(0.20, sr, 'bandpass', 1500);
     this.buffers.place = this._makeNoiseBuf(0.15, sr, 'lowpass', 600);
     this.buffers.splash = this._makeNoiseBuf(0.30, sr, 'lowpass', 700);
+    this.buffers.click = this._makeToneBuf(0.05, sr, 800, 'square');
   }
   _makeNoiseBuf(duration, sr, filterType, freq) {
     const buf = this.ctx.createBuffer(1, sr * duration, sr);
     const data = buf.getChannelData(0);
     for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / data.length, 2);
     return { buffer: buf, filterType, freq };
+  }
+  _makeToneBuf(duration, sr, freq, type) {
+    const buf = this.ctx.createBuffer(1, sr * duration, sr);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) {
+      const t = i / sr;
+      data[i] = (type === 'square' ? (Math.sin(2 * Math.PI * freq * t) > 0 ? 1 : -1) : Math.sin(2 * Math.PI * freq * t)) * Math.pow(1 - i / data.length, 3);
+    }
+    return { buffer: buf, filterType: 'lowpass', freq: 2000 };
   }
   _playBuffer(bufData, gainNode, volume = 1, pitch = 1) {
     if (!this.ctx || !bufData) return;
@@ -48,6 +58,7 @@ class SoundManager {
     osc.connect(gain); gain.connect(gainNode); osc.start(); osc.stop(this.ctx.currentTime + duration);
     osc.onended = () => { osc.disconnect(); gain.disconnect(); };
   }
+  playClick() { if (this.initialized) this._playBuffer(this.buffers.click, this.sfxGain, 0.3, 1); }
   playStep(surface) {
     if (!this.initialized) return;
     const now = performance.now() / 1000;

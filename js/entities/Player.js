@@ -3,7 +3,7 @@ import { HW, PH, EPS } from '../utils/Constants.js';
 import { getBlock, chunks, key } from '../world/World.js';
 import { SOLID } from '../world/Blocks.js';
 
-export const player = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), yaw: 0.6, pitch: -0.12, onGround: false, flying: false, sprinting: false, sneak: false, inWater: false };
+export const player = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), yaw: 0.6, pitch: -0.12, onGround: false, flying: true, sprinting: false, sneak: false, inWater: false };
 let _bob = 0, _bobAmp = 0;
 let wasInWater = false;
 
@@ -32,7 +32,7 @@ export function collide(axis, d) {
   if (hit) { player.vel[axis] = 0; if (axis === 'y' && d < 0) player.onGround = true; }
 }
 
-export function updatePlayer(dt, keys, inputState, respawnFn) {
+export function updatePlayer(dt, keys, inputState, respawnFn, keyBindings) {
   if (!chunks.has(key(Math.floor(player.pos.x / 16), Math.floor(player.pos.z / 16)))) return;
   const k = c => keys.has(c);
   const fwd = (k('KeyW') || k('ArrowUp') ? 1 : 0) - (k('KeyS') || k('ArrowDown') ? 1 : 0);
@@ -60,7 +60,7 @@ export function updatePlayer(dt, keys, inputState, respawnFn) {
   player.onGround = false;
   const steps = Math.max(1, Math.ceil(Math.max(Math.abs(v.x), Math.abs(v.y), Math.abs(v.z)) * dt / 0.4));
   for (let i = 0; i < steps; i++) { collide('y', v.y*dt/steps); collide('x', v.x*dt/steps); collide('z', v.z*dt/steps); }
-  if (player.flying && player.onGround && !wasGround) player.flying = false;
+  // ИСПРАВЛЕНИЕ: полёт НЕ отключается автоматически при приземлении
   const hs = Math.hypot(v.x, v.z);
   if (player.onGround && hs > 0.5) setBob(getBob() + hs * dt * 1.7);
   if (player.inWater && !wasInWater) wasInWater = true;

@@ -10,6 +10,8 @@ export function regenerateNoise(newSeed) {
   currentNoise = makeNoise(currentSeed);
 }
 
+export function getSeed() { return currentSeed; }
+
 export function makeNoise(seed) {
   const p = new Uint8Array(512), perm = new Uint8Array(256);
   for (let i = 0; i < 256; i++) perm[i] = i;

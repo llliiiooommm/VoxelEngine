@@ -4,7 +4,8 @@ import { icons } from '../utils/Textures.js';
 import { DIRS } from '../utils/Constants.js';
 import { chunks } from '../world/World.js';
 import { player } from '../entities/Player.js';
-import { dayTime } from '../world/Sky.js';
+import { dayTime, getDayTime } from '../world/Sky.js';
+import { soundManager } from '../core/SoundManager.js';
 
 export const inventory = new Array(46).fill(0);
 [1, 2, 3, 4, 6, 5, 10, 12, 18].forEach((id, i) => { inventory[37 + i] = id; });
@@ -21,18 +22,31 @@ let dragTargetX = 0, dragTargetY = 0;
 let dragCurrentX = 0, dragCurrentY = 0;
 let hoverSlot = null;
 let tooltip = null;
-let lastClickTime = 0;
-let lastClickSlot = null;
+let currentCategory = 'all';
+let searchQuery = '';
 
-const MAX_STACK = 64;
+const CATEGORIES = {
+  all: 'Все',
+  building: 'Строительство',
+  nature: 'Природа',
+  plants: 'Растительность',
+  decoration: 'Декор'
+};
 
 export function getDebugOn() { return _debugOn; }
 export function setDebugOn(v) { _debugOn = v; }
 export function getPreviousState() { return previousState; }
+export function getSelectedSlot() { return selectedSlot; }
 
-const SCREEN_MAP = { menu: 'main-menu', worlds: 'worlds-screen', settings: 'settings-screen', paused: 'pause-screen', inventory: 'inventory' };
+const SCREEN_MAP = { menu: 'main-menu', singleplayer: 'singleplayer-screen', createworld: 'create-world-screen', settings: 'settings-screen', about: 'about-screen', paused: 'pause-screen', inventory: 'inventory-screen' };
 
-function toggleScreen(screenId, visible) { const el = document.getElementById(screenId); if (el) el.hidden = !visible; }
+function toggleScreen(screenId, visible) {
+  const el = document.getElementById(screenId);
+  if (el) {
+    if (visible) { el.hidden = false; requestAnimationFrame(() => el.classList.add('active')); }
+    else { el.classList.remove('active'); setTimeout(() => { if (!el.classList.contains('active')) el.hidden = true; }, 300); }
+  }
+}
 
 export function renderHotbar() {
   const hotbarEl = $('#hotbar');
@@ -54,60 +68,58 @@ export function renderInventory() {
   if (!container) return;
   container.innerHTML = `
     <div class="inv-window">
-      <div class="inv-top">
-        <div class="inv-player">
-          <div class="armor-slots">
-            <div class="inv-slot armor-slot" data-slot="0"><span class="slot-hint">🪖</span></div>
-            <div class="inv-slot armor-slot" data-slot="1"><span class="slot-hint">👕</span></div>
-            <div class="inv-slot armor-slot" data-slot="2"><span class="slot-hint">👖</span></div>
-            <div class="inv-slot armor-slot" data-slot="3"><span class="slot-hint">👢</span></div>
-          </div>
-          <div class="inv-slot offhand-slot" data-slot="4"><span class="slot-hint">🛡️</span></div>
-        </div>
-        <div class="inv-craft">
-          <div class="craft-grid">
-            <div class="inv-slot craft-slot" data-slot="5"></div>
-            <div class="inv-slot craft-slot" data-slot="6"></div>
-            <div class="inv-slot craft-slot" data-slot="7"></div>
-            <div class="inv-slot craft-slot" data-slot="8"></div>
-          </div>
-          <div class="craft-arrow">→</div>
-          <div class="inv-slot craft-result" data-slot="9"></div>
-        </div>
-      </div>
-      <div class="inv-main" id="inv-main-grid"></div>
-      <div class="inv-hotbar" id="inv-hotbar-grid"></div>
+      <input type="text" class="inv-search" id="inv-search" placeholder="Поиск блоков...">
+      <div class="inv-categories" id="inv-categories"></div>
+      <div class="inv-grid" id="inv-main-grid"></div>
+      <div class="inv-hotbar-inv" id="inv-hotbar-grid"></div>
     </div>`;
-  const mainGrid = $('#inv-main-grid');
-  for (let i = 10; i < 37; i++) mainGrid.appendChild(createSlotElement(i));
+  const categoriesEl = $('#inv-categories');
+  for (const [catKey, catName] of Object.entries(CATEGORIES)) {
+    const btn = document.createElement('button');
+    btn.className = 'category-btn' + (catKey === currentCategory ? ' active' : '');
+    btn.textContent = catName;
+    btn.dataset.category = catKey;
+    btn.onclick = () => { currentCategory = catKey; renderInventory(); soundManager.playClick(); };
+    categoriesEl.appendChild(btn);
+  }
+  const searchInput = $('#inv-search');
+  searchInput.value = searchQuery;
+  searchInput.oninput = (e) => { searchQuery = e.target.value.toLowerCase(); renderInventoryGrid(); };
+  renderInventoryGrid();
   const hotbarGrid = $('#inv-hotbar-grid');
   for (let i = 37; i < 46; i++) hotbarGrid.appendChild(createSlotElement(i));
   updateInventoryVisuals();
 }
 
-function createSlotElement(idx) {
+function renderInventoryGrid() {
+  const mainGrid = $('#inv-main-grid');
+  if (!mainGrid) return;
+  mainGrid.innerHTML = '';
+  for (let id = 1; id < BL.length; id++) {
+    const b = BL[id];
+    if (currentCategory !== 'all' && b.category !== currentCategory) continue;
+    if (searchQuery && !b.n.toLowerCase().includes(searchQuery)) continue;
+    mainGrid.appendChild(createSlotElement(id, true));
+  }
+}
+
+function createSlotElement(id, isCatalog = false) {
   const slot = document.createElement('div');
   slot.className = 'inv-slot';
-  slot.dataset.slot = idx;
-  const id = inventory[idx];
-  if (id) slot.innerHTML = `<img src="${icons[id]}">`;
+  if (isCatalog) {
+    slot.dataset.catalogId = id;
+  } else {
+    slot.dataset.slot = id;
+  }
+  if (id && BL[id]) slot.innerHTML = `<img src="${icons[id]}">`;
   return slot;
 }
 
-function getSlotCount(idx) { return inventory[idx + '_count'] || (inventory[idx] ? 1 : 0); }
-function setSlotCount(idx, count) {
-  if (count <= 0) { inventory[idx] = 0; delete inventory[idx + '_count']; }
-  else inventory[idx + '_count'] = count;
-}
-
 function updateInventoryVisuals() {
-  document.querySelectorAll('.inv-slot').forEach(el => {
+  document.querySelectorAll('.inv-slot[data-slot]').forEach(el => {
     const idx = parseInt(el.dataset.slot);
     const id = inventory[idx];
-    const hint = el.querySelector('.slot-hint');
-    const count = getSlotCount(idx);
-    if (id) el.innerHTML = `<img src="${icons[id]}">${count > 1 ? `<span class="count">${count}</span>` : ''}`;
-    else if (hint) el.innerHTML = hint.outerHTML;
+    if (id && BL[id]) el.innerHTML = `<img src="${icons[id]}">`;
     else el.innerHTML = '';
     el.classList.toggle('hovered', hoverSlot === idx);
   });
@@ -118,7 +130,7 @@ function createDragGhost(id, count) {
   removeDragGhost();
   dragEl = document.createElement('div');
   dragEl.id = 'cursor-ghost';
-  dragEl.innerHTML = `<img src="${icons[id]}">${count > 1 ? `<span class="count">${count}</span>` : ''}`;
+  dragEl.innerHTML = `<img src="${icons[id]}">`;
   document.body.appendChild(dragEl);
   dragTargetX = dragCurrentX = (window.mouseX || 0) - 20;
   dragTargetY = dragCurrentY = (window.mouseY || 0) - 20;
@@ -166,11 +178,10 @@ function updateTooltip() {
   removeTooltip();
   if (hoverSlot === null) return;
   const id = inventory[hoverSlot];
-  if (!id) return;
+  if (!id || !BL[id]) return;
   const tt = document.createElement('div');
   tt.className = 'inv-tooltip';
-  const count = getSlotCount(hoverSlot);
-  tt.innerHTML = `<div class="tooltip-name">${BL[id].n}</div>${count > 1 ? `<div class="tooltip-count">×${count}</div>` : ''}`;
+  tt.innerHTML = `<div class="tooltip-name">${BL[id].n}</div><div class="tooltip-category">${CATEGORIES[BL[id].category] || 'Прочее'}</div>`;
   document.body.appendChild(tt);
   tooltip = tt;
   positionTooltip();
@@ -182,53 +193,37 @@ function removeTooltip() { if (tooltip) { tooltip.remove(); tooltip = null; } }
 function handleLeftClick(e) {
   const slot = e.target.closest('.inv-slot');
   if (!slot) return;
-  const idx = parseInt(slot.dataset.slot);
-  const id = inventory[idx];
-  const count = getSlotCount(idx);
-  const now = Date.now();
-  if (now - lastClickTime < 300 && lastClickSlot === idx && id !== 0 && !cursorItem) { collectAllItems(id); lastClickTime = 0; return; }
-  lastClickTime = now; lastClickSlot = idx;
-  if (cursorItem === null) {
-    if (id !== 0) { cursorItem = { id, count }; setSlotCount(idx, 0); createDragGhost(id, count); slot.classList.add('slot-pop'); setTimeout(() => slot.classList.remove('slot-pop'), 150); }
-  } else {
-    if (id === 0) { inventory[idx] = cursorItem.id; setSlotCount(idx, cursorItem.count); cursorItem = null; removeDragGhost(); slot.classList.add('slot-drop'); setTimeout(() => slot.classList.remove('slot-drop'), 200); }
-    else if (id === cursorItem.id) {
-      const newCount = count + cursorItem.count;
-      if (newCount <= MAX_STACK) { setSlotCount(idx, newCount); cursorItem = null; removeDragGhost(); }
-      else { const space = MAX_STACK - count; setSlotCount(idx, MAX_STACK); cursorItem.count -= space; createDragGhost(cursorItem.id, cursorItem.count); }
+  const catalogId = slot.dataset.catalogId ? parseInt(slot.dataset.catalogId) : null;
+  const slotIdx = slot.dataset.slot ? parseInt(slot.dataset.slot) : null;
+  if (catalogId) {
+    inventory[37 + selectedSlot] = catalogId;
+    renderHotbar();
+    soundManager.playClick();
+    const el = $('#item-name');
+    if (el) { el.textContent = BL[catalogId].n; el.classList.add('show'); clearTimeout(nameTimer); nameTimer = setTimeout(() => el.classList.remove('show'), 1400); }
+  } else if (slotIdx !== null) {
+    const id = inventory[slotIdx];
+    if (cursorItem === null) {
+      if (id !== 0) { cursorItem = { id }; inventory[slotIdx] = 0; createDragGhost(id); soundManager.playClick(); }
+    } else {
+      if (id === 0) { inventory[slotIdx] = cursorItem.id; cursorItem = null; removeDragGhost(); soundManager.playClick(); }
+      else { const temp = inventory[slotIdx]; inventory[slotIdx] = cursorItem.id; cursorItem = { id: temp }; createDragGhost(temp); soundManager.playClick(); }
     }
-    else { const tempId = inventory[idx]; const tempCount = count; inventory[idx] = cursorItem.id; setSlotCount(idx, cursorItem.count); cursorItem = { id: tempId, count: tempCount }; createDragGhost(tempId, tempCount); slot.classList.add('slot-swap'); setTimeout(() => slot.classList.remove('slot-swap'), 200); }
+    updateInventoryVisuals();
   }
-  updateInventoryVisuals();
 }
 
 function handleRightClick(e) {
   const slot = e.target.closest('.inv-slot');
   if (!slot) return;
-  const idx = parseInt(slot.dataset.slot);
-  const id = inventory[idx];
-  const count = getSlotCount(idx);
-  if (cursorItem === null) {
-    if (id !== 0) { const takeCount = Math.ceil(count / 2); cursorItem = { id, count: takeCount }; setSlotCount(idx, count - takeCount); createDragGhost(id, takeCount); }
-  } else {
-    if (id === 0) { inventory[idx] = cursorItem.id; setSlotCount(idx, 1); cursorItem.count--; if (cursorItem.count <= 0) { cursorItem = null; removeDragGhost(); } else createDragGhost(cursorItem.id, cursorItem.count); }
-    else if (id === cursorItem.id && count < MAX_STACK) { setSlotCount(idx, count + 1); cursorItem.count--; if (cursorItem.count <= 0) { cursorItem = null; removeDragGhost(); } else createDragGhost(cursorItem.id, cursorItem.count); }
-  }
-  updateInventoryVisuals();
-}
-
-function collectAllItems(targetId) {
-  let total = 0;
-  for (let i = 10; i < 46; i++) { if (inventory[i] === targetId && i !== hoverSlot) { total += getSlotCount(i); setSlotCount(i, 0); } }
-  if (total > 0) {
-    if (cursorItem && cursorItem.id === targetId) cursorItem.count += total;
-    else cursorItem = { id: targetId, count: total };
-    if (cursorItem.count > MAX_STACK) {
-      const excess = cursorItem.count - MAX_STACK;
-      cursorItem.count = MAX_STACK;
-      for (let i = 10; i < 46; i++) { if (inventory[i] === 0) { inventory[i] = targetId; setSlotCount(i, excess); break; } }
+  const slotIdx = slot.dataset.slot ? parseInt(slot.dataset.slot) : null;
+  if (slotIdx !== null) {
+    const id = inventory[slotIdx];
+    if (cursorItem === null) {
+      if (id !== 0) { cursorItem = { id }; inventory[slotIdx] = 0; createDragGhost(id); soundManager.playClick(); }
+    } else {
+      if (id === 0 || id === cursorItem.id) { inventory[slotIdx] = cursorItem.id; cursorItem = null; removeDragGhost(); soundManager.playClick(); }
     }
-    createDragGhost(cursorItem.id, cursorItem.count);
     updateInventoryVisuals();
   }
 }
@@ -238,14 +233,12 @@ export function openInventory(canvas) { previousState = state === 'playing' ? 'p
 export function closeInventory(canvas) {
   if (cursorItem) {
     let placed = false;
-    for (let i = 10; i < 46; i++) {
-      if (inventory[i] === 0) { inventory[i] = cursorItem.id; setSlotCount(i, cursorItem.count); placed = true; break; }
-      else if (inventory[i] === cursorItem.id && getSlotCount(i) < MAX_STACK) {
-        const space = MAX_STACK - getSlotCount(i);
-        const toPlace = Math.min(space, cursorItem.count);
-        setSlotCount(i, getSlotCount(i) + toPlace);
-        cursorItem.count -= toPlace;
-        if (cursorItem.count <= 0) { placed = true; break; }
+    for (let i = 37; i < 46; i++) {
+      if (inventory[i] === 0) { inventory[i] = cursorItem.id; placed = true; break; }
+    }
+    if (!placed) {
+      for (let i = 10; i < 37; i++) {
+        if (inventory[i] === 0) { inventory[i] = cursorItem.id; placed = true; break; }
       }
     }
     cursorItem = null;
@@ -256,26 +249,18 @@ export function closeInventory(canvas) {
   setState(previousState, canvas);
 }
 
-export function dropItemFromSlot() {
-  if (hoverSlot !== null && inventory[hoverSlot] !== 0) { inventory[hoverSlot] = 0; delete inventory[hoverSlot + '_count']; updateInventoryVisuals(); }
-}
-
-export function dropItemFromCursor() {
-  if (cursorItem) { cursorItem = null; removeDragGhost(); }
-}
-
 export function selectSlot(i) {
   selectedSlot = ((i % 9) + 9) % 9;
   renderHotbar();
   const el = $('#item-name');
-  if (el) { const id = inventory[37 + selectedSlot]; el.textContent = id ? BL[id].n : ''; el.classList.add('show'); clearTimeout(nameTimer); nameTimer = setTimeout(() => el.classList.remove('show'), 1400); }
+  if (el) { const id = inventory[37 + selectedSlot]; el.textContent = id && BL[id] ? BL[id].n : ''; el.classList.add('show'); clearTimeout(nameTimer); nameTimer = setTimeout(() => el.classList.remove('show'), 1400); }
 }
 
 export function setState(s, canvas) {
   state = s;
   Object.values(SCREEN_MAP).forEach(id => toggleScreen(id, false));
   if (SCREEN_MAP[s]) toggleScreen(SCREEN_MAP[s], true);
-  body.classList.toggle('in-game', s !== 'menu' && s !== 'settings' && s !== 'worlds' && s !== 'inventory');
+  body.classList.toggle('in-game', s !== 'menu' && s !== 'settings' && s !== 'singleplayer' && s !== 'createworld' && s !== 'about' && s !== 'inventory');
   body.classList.toggle('playing', s === 'playing');
   if (s === 'playing' && canvas) { try { if (document.pointerLockElement !== canvas) canvas.requestPointerLock(); } catch(e){} }
   else if (s !== 'playing' && document.pointerLockElement) document.exitPointerLock();

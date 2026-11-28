@@ -2,7 +2,8 @@ import * as THREE from 'https://esm.sh/three@0.170.0';
 import { T, AC, AR } from './Constants.js';
 import { BL, FACES, CROSS, TUV, uvU, uvV } from '../world/Blocks.js';
 
-export const atlas = document.createElement('canvas'); atlas.width = AC*T; atlas.height = AR*T;
+export const atlas = document.createElement('canvas');
+atlas.width = AC * T; atlas.height = AR * T;
 const actx = atlas.getContext('2d');
 export const AI = actx.createImageData(atlas.width, atlas.height);
 let rs = 1337;
@@ -22,7 +23,8 @@ const dirtPx = () => { const r = rnd(); return r < 0.1 ? V([104,74,50],0.15) : r
 const stonePx = () => rnd() < 0.1 ? V(M(STONE,0.78),0.1) : V(STONE,0.18);
 
 paint(0, () => rnd() < 0.12 ? M(V(GRASS,0.2),0.8) : V(GRASS,0.3));
-{ const drip = Array.from({length:16}, () => 3 + (rnd()*2|0) + (rnd() < 0.2 ? 2 : 0)); paint(1, (x, y) => y < drip[x] ? V(GRASS,0.3) : dirtPx()); }
+{ const drip = Array.from({length:16}, () => 3 + (rnd()*2|0) + (rnd() < 0.2 ? 2 : 0));
+  paint(1, (x, y) => y < drip[x] ? V(GRASS,0.3) : dirtPx()); }
 paint(2, dirtPx); paint(3, stonePx);
 { const pts = Array.from({length:9}, () => ({x: rnd()*16, y: rnd()*16, s: 0.72 + rnd()*0.4}));
   paint(4, (x, y) => { let d1 = 99, d2 = 99, best = pts[0]; for (const p of pts) { let dx = Math.abs(x + .5 - p.x); dx = Math.min(dx, 16 - dx); let dy = Math.abs(y + .5 - p.y); dy = Math.min(dy, 16 - dy); const d = Math.hypot(dx, dy); if (d < d1) { d2 = d1; d1 = d; best = p; } else if (d < d2) d2 = d; } return d2 - d1 < 1.1 ? V([62,62,62],0.2) : V(M(STONE,best.s),0.14); }); }

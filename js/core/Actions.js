@@ -2,6 +2,7 @@ import { getBlock, setBlock } from '../world/World.js';
 import { BL, SOLID, OPAQUE, PICK } from '../world/Blocks.js';
 import { player } from '../entities/Player.js';
 import { HW, PH } from '../utils/Constants.js';
+import { soundManager } from './SoundManager.js';
 
 export function raycast(o, d, max) {
   let x = Math.floor(o.x), y = Math.floor(o.y), z = Math.floor(o.z);
@@ -36,9 +37,10 @@ export function doAction(btn, target, slots, sel, selectSlot, renderHotbar, spaw
   }
   const h = target;
   if (btn === 0) {
-    if (h.id === 11) return;
+    if (h.id === 12) return;
     setBlockFn(h.x, h.y, h.z, 0);
     spawnParticlesFn(h.x, h.y, h.z, h.id);
+    if (soundManager && soundManager.playBreak) soundManager.playBreak();
     const above = getBlockFn(h.x, h.y + 1, h.z);
     if (above && BL[above] && BL[above].cross) setBlockFn(h.x, h.y + 1, h.z, 0);
     window.swingT = 1;
@@ -56,13 +58,12 @@ export function doAction(btn, target, slots, sel, selectSlot, renderHotbar, spaw
     if (b.solid && intersectsPlayer(tx, ty, tz)) return;
     setBlockFn(tx, ty, tz, id);
     if (OPAQUE[id] && getBlockFn(tx, ty - 1, tz) === 1) setBlockFn(tx, ty - 1, tz, 2);
+    if (soundManager && soundManager.playPlace) soundManager.playPlace();
     window.swingT = 1;
   }
   else if (btn === 1) {
     let foundIdx = -1;
-    for (let i = 37; i <= 45; i++) {
-      if (slots[i] === h.id) { foundIdx = i - 37; break; }
-    }
+    for (let i = 37; i <= 45; i++) { if (slots[i] === h.id) { foundIdx = i - 37; break; } }
     if (foundIdx >= 0) selectSlot(foundIdx);
     else { slots[sel] = h.id; renderHotbar(); selectSlot(sel); }
   }

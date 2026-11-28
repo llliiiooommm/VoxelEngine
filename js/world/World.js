@@ -49,12 +49,7 @@ export function serializeModifiedChunks() {
       for (let i = 0; i < c.data.length; i++) {
         if (c.data[i] !== 0) blocks.push([i, c.data[i]]);
       }
-      modified.push({
-        cx: c.cx, cz: c.cz,
-        maxY: c.maxY,
-        top: Array.from(c.top),
-        blocks: blocks
-      });
+      modified.push({ cx: c.cx, cz: c.cz, maxY: c.maxY, top: Array.from(c.top), blocks });
     }
   }
   return modified;
@@ -67,20 +62,14 @@ export function applyModifiedChunks(modifiedChunks) {
     if (!c) continue;
     c.maxY = mc.maxY;
     c.top = new Int16Array(mc.top);
-    for (const [idx, id] of mc.blocks) {
-      c.data[idx] = id;
-    }
+    for (const [idx, id] of mc.blocks) c.data[idx] = id;
     c.modified = true;
     c.dirty = true;
   }
 }
 
 export function neighborsReady(c) {
-  for (let dz = -1; dz <= 1; dz++) {
-    for (let dx = -1; dx <= 1; dx++) {
-      if (!chunks.has(key(c.cx + dx, c.cz + dz))) return false;
-    }
-  }
+  for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) if (!chunks.has(key(c.cx + dx, c.cz + dz))) return false;
   return true;
 }
 
@@ -88,11 +77,9 @@ export let renderDist = 6, offsets = [];
 export function buildOffsets() {
   offsets = [];
   const r = renderDist + 2;
-  for (let dz = -r; dz <= r; dz++) {
-    for (let dx = -r; dx <= r; dx++) {
-      const d2 = dx*dx + dz*dz;
-      if (d2 <= (r + .5)**2) offsets.push([dx, dz, d2]);
-    }
+  for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+    const d2 = dx*dx + dz*dz;
+    if (d2 <= (r + .5)**2) offsets.push([dx, dz, d2]);
   }
   offsets.sort((a, b) => a[2] - b[2]);
 }

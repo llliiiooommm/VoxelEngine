@@ -1,12 +1,15 @@
 import * as THREE from 'https://esm.sh/three@0.170.0';
-import { DAY_LEN, DAY, NIGHT, DUSK, $ } from '../utils/Constants.js';
+import { DAY, NIGHT, DUSK, $ } from '../utils/Constants.js';
 import { getBlock, renderDist } from './World.js';
+
 export let dayTime = 0.06, daylight = 1;
 export let cloudDrift = 0;
 export let underwater = false;
+
 export function setDayTime(value) { dayTime = value; }
 export function setCloudDrift(value) { cloudDrift = value; }
 export function getCloudDrift() { return cloudDrift; }
+
 export function initSky(scene, camera) {
   const skyGroup = new THREE.Group(); scene.add(skyGroup);
   function squareTex(draw) { const c = document.createElement('canvas'); c.width = c.height = 32; draw(c.getContext('2d')); const t = new THREE.CanvasTexture(c); t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; return t; }
@@ -23,13 +26,14 @@ export function initSky(scene, camera) {
   clouds.rotation.x = -Math.PI/2; scene.add(clouds);
   return { skyGroup, sun, moon, starGroup, starMat: starGroup.children[0].material, clouds, cloudMat, cloudTex };
 }
+
 export function updateSky(skyObjs, scene, camera, renderer, worldMat, waterMat, handMat) {
   const a = dayTime * Math.PI * 2, sh = Math.sin(a);
   daylight = THREE.MathUtils.clamp(sh * 1.8 + 0.35, 0.16, 1);
   const t = (daylight - 0.16) / 0.84;
   const dusk = Math.max(0, 1 - Math.abs(sh) / 0.28) * 0.6;
   const col = [0,1,2].map(k => { const c = NIGHT[k] + (DAY[k] - NIGHT[k]) * t; return c + (DUSK[k] - c) * dusk; });
-  underwater = getBlock(Math.floor(camera.position.x), Math.floor(camera.position.y), Math.floor(camera.position.z)) === 9;
+  underwater = getBlock(Math.floor(camera.position.x), Math.floor(camera.position.y), Math.floor(camera.position.z)) === 10;
   const skyCol = new THREE.Color();
   if (underwater) { skyCol.setRGB(0.06 * daylight + 0.02, 0.15 * daylight + 0.02, 0.42 * daylight + 0.04); scene.fog.near = 0.5; scene.fog.far = 18; }
   else { skyCol.setRGB(col[0], col[1], col[2]); scene.fog.near = renderDist * 16 * 0.55; scene.fog.far = renderDist * 16 * 0.95; }
